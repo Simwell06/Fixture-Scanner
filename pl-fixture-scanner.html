@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Position-Gap Fixture Scanner</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #0c1420; color: #e8ecf1;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 24px 80px; }
+  .eyebrow { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: #5b8fd6; font-weight: 600; margin-bottom: 8px; }
+  h1 { font-size: 28px; font-weight: 800; margin: 0 0 10px; line-height: 1.15; letter-spacing: -0.01em; }
+  p.lead { color: #8b98ab; font-size: 14.5px; line-height: 1.6; margin: 0 0 28px; max-width: 640px; }
+  .card { background: #131d2e; border: 1px solid #223148; border-radius: 16px; padding: 22px 24px; margin-bottom: 20px; }
+  .card h3 { margin: 0 0 4px; font-size: 15px; font-weight: 700; color: #e8ecf1; }
+  .card .sub { font-size: 12.5px; color: #6b7789; margin: 0 0 14px; line-height: 1.5; }
+  label { display: block; font-size: 12px; color: #8b98ab; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  input[type=text], input[type=password] {
+    width: 100%; background: #0c1420; border: 1px solid #2a3a52; color: #e8ecf1;
+    padding: 10px 12px; border-radius: 8px; font-size: 14px; font-family: monospace;
+  }
+  input[type=text]:focus, input[type=password]:focus { outline: none; border-color: #5b8fd6; }
+  .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 200px; }
+  button {
+    background: #5b8fd6; color: #0c1420; border: none; border-radius: 8px;
+    padding: 10px 20px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+  button:hover { background: #79a4e0; }
+  button:disabled { background: #2a3a52; color: #6b7789; cursor: not-allowed; }
+  button.secondary { background: transparent; border: 1px solid #2a3a52; color: #a9c6ef; }
+  .help { font-size: 12px; color: #5c6b80; margin-top: 8px; line-height: 1.6; }
+  .help a { color: #5b8fd6; }
+  .status { font-size: 13px; padding: 10px 14px; border-radius: 8px; margin-top: 12px; }
+  .status.error { background: rgba(217,105,79,0.12); color: #e0917a; border: 1px solid rgba(217,105,79,0.3); }
+  .status.ok { background: rgba(79,180,119,0.1); color: #7bc999; border: 1px solid rgba(79,180,119,0.25); }
+  .status.loading { background: rgba(91,143,214,0.1); color: #a9c6ef; border: 1px solid rgba(91,143,214,0.25); }
+
+  .slider-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .slider-label { font-size: 13px; color: #8b98ab; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+  .slider-value { font-size: 28px; font-weight: 800; color: #5b8fd6; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: #5b8fd6; height: 6px; margin: 10px 0 4px; cursor: pointer; }
+  .range-labels { display: flex; justify-content: space-between; font-size: 11px; color: #5c6b80; }
+
+  .fixture-list { display: flex; flex-direction: column; gap: 10px; }
+  .fixture {
+    background: #0c1420; border: 1px solid #223148; border-radius: 12px; padding: 14px 16px;
+  }
+  .fixture.flagged { border-color: #4fb477; background: rgba(79,180,119,0.06); }
+  .fixture-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .teams { font-size: 15px; font-weight: 600; }
+  .teams .pos { color: #6b7789; font-weight: 400; font-size: 13px; }
+  .gap-badge { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #1c2839; color: #8b98ab; }
+  .fixture.flagged .gap-badge { background: rgba(79,180,119,0.18); color: #7bc999; }
+  .meta-row { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+  .kickoff { font-size: 12.5px; color: #6b7789; }
+  .odds-link { font-size: 12.5px; color: #5b8fd6; text-decoration: none; font-weight: 600; }
+  .odds-link:hover { text-decoration: underline; }
+  .empty { color: #5c6b80; font-size: 13.5px; text-align: center; padding: 20px 0; }
+  .footnote { margin-top: 24px; font-size: 12px; color: #4a5568; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Position-Gap Fixture Scanner &middot; Premier League</div>
+  <h1>Which upcoming fixtures are worth a look?</h1>
+  <p class="lead">
+    Pulls the live table and next gameweek's fixtures, flags any match where the two teams are
+    far enough apart to have historically been worth backing (favorite to win-or-draw), then
+    hands you a one-click link to compare bookmaker prices for that specific match.
+  </p>
+
+  <div class="card">
+    <h3>Connect to football-data.org</h3>
+    <p class="sub">Free API key, no cost. Takes about a minute to get one.</p>
+    <label for="apiKey">API Key</label>
+    <input type="password" id="apiKey" placeholder="Paste your football-data.org API key">
+    <div class="help">
+      Don't have one? <a href="https://www.football-data.org/client/register" target="_blank" rel="noopener">Register free here</a> &mdash;
+      verify your email, then copy the token from your account page. Your key is only stored in this browser
+      (never sent anywhere except football-data.org) and is remembered next time you open this file.
+    </div>
+    <div class="row" style="margin-top:14px;">
+      <div style="flex:0 0 auto;"><button id="loadBtn">Load current fixtures</button></div>
+      <div style="flex:0 0 auto;"><button class="secondary" id="clearKeyBtn">Forget saved key</button></div>
+    </div>
+    <div id="rateLimitBadge" style="font-size:11.5px; margin-top:10px;"></div>
+    <div id="statusBox"></div>
+  </div>
+
+  <div class="card">
+    <h3>Position gap threshold</h3>
+    <p class="sub">How many places apart the two teams need to be to get flagged. Default matches our backtested rule (~68% of the table width).</p>
+    <div class="slider-head">
+      <span class="slider-label">Minimum gap</span>
+      <span class="slider-value" id="gapValue">13</span>
+    </div>
+    <input type="range" id="gapSlider" min="0" max="19" value="13">
+    <div class="range-labels"><span>0 places</span><span>19 places (max possible)</span></div>
+  </div>
+
+  <div class="card">
+    <h3 id="fixtureListTitle">Upcoming fixtures</h3>
+    <p class="sub" id="fixtureListSub">Load fixtures above to see this gameweek's matches.</p>
+    <div class="fixture-list" id="fixtureList">
+      <div class="empty">No fixtures loaded yet.</div>
+    </div>
+  </div>
+
+  <div class="footnote">
+    Position gap is calculated from the live table each time you load fixtures &mdash; it always reflects
+    the real current standings, not a snapshot. Flagged fixtures are a starting point for research, not a
+    guaranteed bet: check the backtest context (this rule showed a modest, not-fully-confirmed edge on
+    historical Premier League data specifically) before relying on it. Best-odds links point to a search
+    for that match on Oddschecker &mdash; always confirm the price yourself before betting.
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'pgfs_api_key';
+let currentFixtures = [];
+let minGap = 13;
+
+// --- rate limit tracking (per football-data.org docs: X-RequestsAvailable / X-RequestCounter-Reset) ---
+let rateLimit = { available: null, resetSeconds: null, lastUpdated: null };
+
+class RateLimitError extends Error {
+  constructor(response) {
+    const resetHeader = response.headers.get('X-RequestCounter-Reset');
+    const wait = resetHeader ? parseInt(resetHeader, 10) : null;
+    const waitMsg = wait ? `Try again in about ${wait} seconds.` : 'Try again in a minute or so.';
+    super(`Rate limit hit (football-data.org's free tier caps requests per minute). ${waitMsg}`);
+    this.name = 'RateLimitError';
+    this.waitSeconds = wait;
+  }
+}
+
+function updateRateLimitFromResponse(response) {
+  const available = response.headers.get('X-RequestsAvailable');
+  const reset = response.headers.get('X-RequestCounter-Reset');
+  // NOTE: browsers only expose response headers to JS that the server allows via
+  // Access-Control-Expose-Headers. If football-data.org doesn't whitelist these,
+  // available/reset will read as null here even though they're on the wire — that's
+  // expected and handled gracefully (we just skip the display / throttle-wait).
+  if (available !== null) rateLimit.available = parseInt(available, 10);
+  if (reset !== null) rateLimit.resetSeconds = parseInt(reset, 10);
+  rateLimit.lastUpdated = Date.now();
+  renderRateLimitBadge();
+}
+
+function rateLimitSuffix() {
+  if (rateLimit.available === null) return '';
+  return ` (${rateLimit.available} API requests left this minute)`;
+}
+
+function renderRateLimitBadge() {
+  const el = document.getElementById('rateLimitBadge');
+  if (!el) return;
+  if (rateLimit.available === null) {
+    el.textContent = '';
+    return;
+  }
+  const low = rateLimit.available <= 2;
+  el.innerHTML = `<span style="color:${low ? '#e0917a' : '#5c6b80'}">${rateLimit.available} requests left this minute${rateLimit.resetSeconds !== null ? ` &middot; resets in ${rateLimit.resetSeconds}s` : ''}</span>`;
+}
+
+// if we're down to the last couple requests, proactively pause before firing the next one
+// rather than waiting to get hit with a 429
+async function waitIfThrottled() {
+  if (rateLimit.available !== null && rateLimit.available <= 1 && rateLimit.resetSeconds !== null) {
+    setStatus(`Close to the rate limit &mdash; pausing ${rateLimit.resetSeconds}s before the next request&hellip;`, 'loading');
+    await new Promise(r => setTimeout(r, (rateLimit.resetSeconds + 1) * 1000));
+  }
+}
+
+const apiKeyInput = document.getElementById('apiKey');
+const loadBtn = document.getElementById('loadBtn');
+const clearKeyBtn = document.getElementById('clearKeyBtn');
+const statusBox = document.getElementById('statusBox');
+const gapSlider = document.getElementById('gapSlider');
+const gapValue = document.getElementById('gapValue');
+const fixtureList = document.getElementById('fixtureList');
+const fixtureListTitle = document.getElementById('fixtureListTitle');
+const fixtureListSub = document.getElementById('fixtureListSub');
+
+// restore saved key
+const savedKey = localStorage.getItem(STORAGE_KEY);
+if (savedKey) apiKeyInput.value = savedKey;
+
+clearKeyBtn.addEventListener('click', () => {
+  localStorage.removeItem(STORAGE_KEY);
+  apiKeyInput.value = '';
+  setStatus('Saved key forgotten.', 'ok');
+});
+
+function setStatus(msg, type) {
+  statusBox.innerHTML = msg ? `<div class="status ${type}">${msg}</div>` : '';
+}
+
+function oddscheckerLink(home, away) {
+  const q = encodeURIComponent(`oddschecker ${home} vs ${away}`);
+  return `https://www.google.com/search?q=${q}`;
+}
+
+function formatKickoff(utcDate) {
+  const d = new Date(utcDate);
+  return d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+async function loadFixtures() {
+  const key = apiKeyInput.value.trim();
+  if (!key) {
+    setStatus('Please paste your football-data.org API key first.', 'error');
+    return;
+  }
+
+  const secondsSinceLastLoad = (Date.now() - lastLoadTime) / 1000;
+  if (lastLoadTime && secondsSinceLastLoad < MIN_SECONDS_BETWEEN_LOADS) {
+    const wait = Math.ceil(MIN_SECONDS_BETWEEN_LOADS - secondsSinceLastLoad);
+    setStatus(`Loaded very recently &mdash; waiting ${wait}s to stay well clear of the rate limit.`, 'loading');
+    return;
+  }
+
+  localStorage.setItem(STORAGE_KEY, key);
+  loadBtn.disabled = true;
+  setStatus('Loading live table and fixtures&hellip;', 'loading');
+  lastLoadTime = Date.now(); // only counts once we're actually about to hit the API
+
+  try {
+    const headers = { 'X-Auth-Token': key };
+
+    const standingsRes = await fetch('https://api.football-data.org/v4/competitions/PL/standings', { headers });
+    updateRateLimitFromResponse(standingsRes);
+    if (standingsRes.status === 429) {
+      throw new RateLimitError(standingsRes);
+    }
+    if (!standingsRes.ok) {
+      let detail = '';
+      try {
+        const body = await standingsRes.json();
+        detail = body.message || body.error || JSON.stringify(body);
+      } catch (e) {
+        detail = await standingsRes.text().catch(() => '');
+      }
+      throw new Error(`Standings request failed (HTTP ${standingsRes.status})${detail ? `: "${detail}"` : ''}`);
+    }
+    const standingsData = await standingsRes.json();
+    const table = standingsData.standings.find(s => s.type === 'TOTAL').table;
+    const numTeams = table.length;
+    const posById = {};
+    const nameById = {};
+    for (const row of table) {
+      posById[row.team.id] = row.position;
+      nameById[row.team.id] = row.team.shortName || row.team.name;
+    }
+
+    // respect the rate limit before firing the second request
+    await waitIfThrottled();
+
+    const matchesRes = await fetch('https://api.football-data.org/v4/competitions/PL/matches?status=SCHEDULED', { headers });
+    updateRateLimitFromResponse(matchesRes);
+    if (matchesRes.status === 429) {
+      throw new RateLimitError(matchesRes);
+    }
+    if (!matchesRes.ok) {
+      let detail = '';
+      try {
+        const body = await matchesRes.json();
+        detail = body.message || body.error || JSON.stringify(body);
+      } catch (e) {
+        detail = await matchesRes.text().catch(() => '');
+      }
+      throw new Error(`Fixtures request failed (HTTP ${matchesRes.status})${detail ? `: "${detail}"` : ''}`);
+    }
+    const matchesData = await matchesRes.json();
+    const scheduled = matchesData.matches || [];
+
+    if (scheduled.length === 0) {
+      setStatus('No scheduled fixtures found (season may be finished, or between gameweeks).' + rateLimitSuffix(), 'error');
+      fixtureList.innerHTML = '<div class="empty">No upcoming fixtures.</div>';
+      loadBtn.disabled = false;
+      return;
+    }
+
+    const nextMatchday = Math.min(...scheduled.map(m => m.matchday));
+    const nextFixtures = scheduled.filter(m => m.matchday === nextMatchday);
+
+    currentFixtures = nextFixtures.map(m => {
+      const hPos = posById[m.homeTeam.id];
+      const aPos = posById[m.awayTeam.id];
+      const gap = (hPos != null && aPos != null) ? Math.abs(hPos - aPos) : null;
+      const higherIsHome = gap !== null ? (hPos < aPos) : null;
+      return {
+        home: nameById[m.homeTeam.id] || m.homeTeam.shortName || m.homeTeam.name,
+        away: nameById[m.awayTeam.id] || m.awayTeam.shortName || m.awayTeam.name,
+        hPos, aPos, gap, higherIsHome,
+        utcDate: m.utcDate,
+        matchday: m.matchday,
+      };
+    });
+
+    fixtureListTitle.textContent = `Gameweek ${nextMatchday} fixtures`;
+    fixtureListSub.textContent = `${numTeams}-team table &middot; ${currentFixtures.length} fixtures this gameweek`;
+    setStatus(`Loaded gameweek ${nextMatchday}, ${currentFixtures.length} fixtures.` + rateLimitSuffix(), 'ok');
+    renderFixtures();
+  } catch (err) {
+    if (err instanceof RateLimitError) {
+      setStatus(err.message, 'error');
+    } else {
+      setStatus('Error: ' + err.message + ' (if this persists, double check your API key, or the request may be CORS-blocked by your browser &mdash; try a different browser or check the console.)', 'error');
+    }
+  } finally {
+    loadBtn.disabled = false;
+  }
+}
+
+function renderFixtures() {
+  if (currentFixtures.length === 0) {
+    fixtureList.innerHTML = '<div class="empty">No fixtures loaded yet.</div>';
+    return;
+  }
+  const sorted = [...currentFixtures].sort((a, b) => (b.gap ?? -1) - (a.gap ?? -1));
+  fixtureList.innerHTML = sorted.map(f => {
+    const flagged = f.gap !== null && f.gap >= minGap;
+    const favorite = f.higherIsHome === true ? f.home : (f.higherIsHome === false ? f.away : null);
+    return `
+      <div class="fixture ${flagged ? 'flagged' : ''}">
+        <div class="fixture-top">
+          <span class="teams">${f.home} <span class="pos">(${f.hPos ?? '?'})</span> vs ${f.away} <span class="pos">(${f.aPos ?? '?'})</span></span>
+          <span class="gap-badge">${f.gap !== null ? f.gap + ' gap' : 'n/a'}</span>
+        </div>
+        <div class="meta-row">
+          <span class="kickoff">${formatKickoff(f.utcDate)}</span>
+          ${flagged ? `<a class="odds-link" href="${oddscheckerLink(f.home, f.away)}" target="_blank" rel="noopener">Check best odds (${favorite} W/D) &rarr;</a>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+gapSlider.addEventListener('input', (e) => {
+  minGap = Number(e.target.value);
+  gapValue.textContent = minGap;
+  renderFixtures();
+});
+
+let lastLoadTime = 0;
+const MIN_SECONDS_BETWEEN_LOADS = 13; // 2 requests per load; keeps us safely under a typical 10-req/min free-tier cap
+
+loadBtn.addEventListener('click', loadFixtures);
+</script>
+</body>
+</html>
