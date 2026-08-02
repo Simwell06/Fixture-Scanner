@@ -69,8 +69,9 @@
   <h1>Which upcoming fixtures are worth a look?</h1>
   <p class="lead">
     Pulls the live table and next gameweek's fixtures, flags any match where the two teams are
-    far enough apart to have historically been worth backing (favorite to win-or-draw), then
-    hands you a one-click link to compare bookmaker prices for that specific match.
+    far enough apart to have historically been worth backing (favorite in the <strong>Double Chance</strong>
+    market &mdash; win or draw, not Draw No Bet), then hands you a direct link to that exact match's
+    odds comparison.
   </p>
 
   <div class="card">
@@ -80,8 +81,7 @@
     <div class="help">
       This tool calls a small proxy (a Cloudflare Worker) instead of football-data.org directly, to avoid
       browser CORS restrictions and keep your API key off this page. Paste the Worker's URL once it's
-      deployed &mdash; ask Claude for setup steps if you haven't created one yet. Your Worker URL is only
-      stored in this browser and is remembered next time you open this file.
+      deployed. Your Worker URL is only stored in this browser and is remembered next time you open this file.
     </div>
     <div class="row" style="margin-top:14px;">
       <div style="flex:0 0 auto;"><button id="loadBtn">Load current fixtures</button></div>
@@ -93,7 +93,7 @@
 
   <div class="card">
     <h3>Position gap threshold</h3>
-    <p class="sub">How many places apart the two teams need to be to get flagged. Default matches our backtested rule (~68% of the table width).</p>
+    <p class="sub">How many places apart the two teams need to be to get flagged. Default matches our backtested rule (~68% of the table width). Updates live as you drag &mdash; no need to reload.</p>
     <div class="slider-head">
       <span class="slider-label">Minimum gap</span>
       <span class="slider-value" id="gapValue">13</span>
@@ -114,13 +114,13 @@
     Position gap is calculated from the live table each time you load fixtures &mdash; it always reflects
     the real current standings, not a snapshot. Flagged fixtures are a starting point for research, not a
     guaranteed bet: check the backtest context (this rule showed a modest, not-fully-confirmed edge on
-    historical Premier League data specifically) before relying on it. Best-odds links point to a search
-    for that match on Oddschecker &mdash; always confirm the price yourself before betting.
+    historical Premier League data specifically) before relying on it. Odds links point to that exact
+    match's Double Chance market on Oddschecker &mdash; always confirm the price yourself before betting.
   </div>
 </div>
 
 <script>
-const STORAGE_KEY = 'pgfs_api_key';
+const STORAGE_KEY = 'pgfs_worker_url';
 let currentFixtures = [];
 let minGap = 13;
 
@@ -141,10 +141,6 @@ class RateLimitError extends Error {
 function updateRateLimitFromResponse(response) {
   const available = response.headers.get('X-RequestsAvailable');
   const reset = response.headers.get('X-RequestCounter-Reset');
-  // NOTE: browsers only expose response headers to JS that the server allows via
-  // Access-Control-Expose-Headers. If football-data.org doesn't whitelist these,
-  // available/reset will read as null here even though they're on the wire — that's
-  // expected and handled gracefully (we just skip the display / throttle-wait).
   if (available !== null) rateLimit.available = parseInt(available, 10);
   if (reset !== null) rateLimit.resetSeconds = parseInt(reset, 10);
   rateLimit.lastUpdated = Date.now();
@@ -167,13 +163,57 @@ function renderRateLimitBadge() {
   el.innerHTML = `<span style="color:${low ? '#e0917a' : '#5c6b80'}">${rateLimit.available} requests left this minute${rateLimit.resetSeconds !== null ? ` &middot; resets in ${rateLimit.resetSeconds}s` : ''}</span>`;
 }
 
-// if we're down to the last couple requests, proactively pause before firing the next one
-// rather than waiting to get hit with a 429
 async function waitIfThrottled() {
   if (rateLimit.available !== null && rateLimit.available <= 1 && rateLimit.resetSeconds !== null) {
     setStatus(`Close to the rate limit &mdash; pausing ${rateLimit.resetSeconds}s before the next request&hellip;`, 'loading');
     await new Promise(r => setTimeout(r, (rateLimit.resetSeconds + 1) * 1000));
   }
+}
+
+// --- Oddschecker team-slug mapping ---
+// Keyed by many possible spelling variants (football-data.org's exact name/shortName
+// field can vary), mapped to Oddschecker's actual URL slug for that club.
+const ODDSCHECKER_SLUGS = {
+  'arsenal': 'arsenal',
+  'aston villa': 'aston-villa', 'villa': 'aston-villa',
+  'bournemouth': 'bournemouth', 'afc bournemouth': 'bournemouth',
+  'brentford': 'brentford',
+  'brighton': 'brighton', 'brighton & hove albion': 'brighton', 'brighton and hove albion': 'brighton', 'brighton hove albion': 'brighton',
+  'burnley': 'burnley',
+  'chelsea': 'chelsea',
+  'crystal palace': 'crystal-palace', 'palace': 'crystal-palace',
+  'everton': 'everton',
+  'fulham': 'fulham',
+  'leeds': 'leeds', 'leeds united': 'leeds',
+  'liverpool': 'liverpool',
+  'man city': 'man-city', 'manchester city': 'man-city',
+  'man utd': 'man-utd', 'man united': 'man-utd', 'manchester united': 'man-utd', 'manchester utd': 'man-utd',
+  'newcastle': 'newcastle', 'newcastle united': 'newcastle',
+  "nott'm forest": 'nottingham-forest', 'nottingham forest': 'nottingham-forest', 'notts forest': 'nottingham-forest',
+  'sunderland': 'sunderland',
+  'spurs': 'tottenham', 'tottenham': 'tottenham', 'tottenham hotspur': 'tottenham',
+  'west ham': 'west-ham', 'west ham united': 'west-ham',
+  'wolves': 'wolverhampton', 'wolverhampton': 'wolverhampton', 'wolverhampton wanderers': 'wolverhampton',
+};
+
+function normalizeTeamName(name) {
+  return name.toLowerCase().replace(/\bfc\b/g, '').replace(/\bafc\b/g, '').trim().replace(/\s+/g, ' ');
+}
+
+function oddscheckerSlug(name) {
+  const norm = normalizeTeamName(name);
+  return ODDSCHECKER_SLUGS[norm] || null;
+}
+
+function oddscheckerLink(home, away) {
+  const homeSlug = oddscheckerSlug(home);
+  const awaySlug = oddscheckerSlug(away);
+  if (homeSlug && awaySlug) {
+    return `https://www.oddschecker.com/football/english/premier-league/${homeSlug}-v-${awaySlug}/winner`;
+  }
+  // fallback if either team's slug is unrecognized (e.g. a newly promoted club we don't have mapped)
+  const q = encodeURIComponent(`oddschecker ${home} vs ${away}`);
+  return `https://www.google.com/search?q=${q}`;
 }
 
 const apiKeyInput = document.getElementById('apiKey');
@@ -186,23 +226,17 @@ const fixtureList = document.getElementById('fixtureList');
 const fixtureListTitle = document.getElementById('fixtureListTitle');
 const fixtureListSub = document.getElementById('fixtureListSub');
 
-// restore saved key
 const savedKey = localStorage.getItem(STORAGE_KEY);
 if (savedKey) apiKeyInput.value = savedKey;
 
 clearKeyBtn.addEventListener('click', () => {
   localStorage.removeItem(STORAGE_KEY);
   apiKeyInput.value = '';
-  setStatus('Saved key forgotten.', 'ok');
+  setStatus('Saved Worker URL forgotten.', 'ok');
 });
 
 function setStatus(msg, type) {
   statusBox.innerHTML = msg ? `<div class="status ${type}">${msg}</div>` : '';
-}
-
-function oddscheckerLink(home, away) {
-  const q = encodeURIComponent(`oddschecker ${home} vs ${away}`);
-  return `https://www.google.com/search?q=${q}`;
 }
 
 function formatKickoff(utcDate) {
@@ -210,8 +244,11 @@ function formatKickoff(utcDate) {
   return d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+let lastLoadTime = 0;
+const MIN_SECONDS_BETWEEN_LOADS = 13;
+
 async function loadFixtures() {
-  const workerUrl = apiKeyInput.value.trim().replace(/\/+$/, ''); // strip trailing slash
+  const workerUrl = apiKeyInput.value.trim().replace(/\/+$/, '');
   if (!workerUrl) {
     setStatus('Please paste your Worker URL first.', 'error');
     return;
@@ -227,14 +264,12 @@ async function loadFixtures() {
   localStorage.setItem(STORAGE_KEY, workerUrl);
   loadBtn.disabled = true;
   setStatus('Loading live table and fixtures&hellip;', 'loading');
-  lastLoadTime = Date.now(); // only counts once we're actually about to hit the API
+  lastLoadTime = Date.now();
 
   try {
     const standingsRes = await fetch(`${workerUrl}/?path=${encodeURIComponent('/v4/competitions/PL/standings')}`);
     updateRateLimitFromResponse(standingsRes);
-    if (standingsRes.status === 429) {
-      throw new RateLimitError(standingsRes);
-    }
+    if (standingsRes.status === 429) throw new RateLimitError(standingsRes);
     if (!standingsRes.ok) {
       let detail = '';
       try {
@@ -255,14 +290,11 @@ async function loadFixtures() {
       nameById[row.team.id] = row.team.shortName || row.team.name;
     }
 
-    // respect the rate limit before firing the second request
     await waitIfThrottled();
 
     const matchesRes = await fetch(`${workerUrl}/?path=${encodeURIComponent('/v4/competitions/PL/matches?status=SCHEDULED')}`);
     updateRateLimitFromResponse(matchesRes);
-    if (matchesRes.status === 429) {
-      throw new RateLimitError(matchesRes);
-    }
+    if (matchesRes.status === 429) throw new RateLimitError(matchesRes);
     if (!matchesRes.ok) {
       let detail = '';
       try {
@@ -332,7 +364,7 @@ function renderFixtures() {
         </div>
         <div class="meta-row">
           <span class="kickoff">${formatKickoff(f.utcDate)}</span>
-          ${flagged ? `<a class="odds-link" href="${oddscheckerLink(f.home, f.away)}" target="_blank" rel="noopener">Check best odds (${favorite} W/D) &rarr;</a>` : ''}
+          ${flagged ? `<a class="odds-link" href="${oddscheckerLink(f.home, f.away)}" target="_blank" rel="noopener">Double Chance odds (${favorite} W/D) &rarr;</a>` : ''}
         </div>
       </div>
     `;
@@ -344,9 +376,6 @@ gapSlider.addEventListener('input', (e) => {
   gapValue.textContent = minGap;
   renderFixtures();
 });
-
-let lastLoadTime = 0;
-const MIN_SECONDS_BETWEEN_LOADS = 13; // 2 requests per load; keeps us safely under a typical 10-req/min free-tier cap
 
 loadBtn.addEventListener('click', loadFixtures);
 </script>
