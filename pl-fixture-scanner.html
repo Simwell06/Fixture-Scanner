@@ -60,6 +60,9 @@
   .odds-link { font-size: 12.5px; color: #5b8fd6; text-decoration: none; font-weight: 600; }
   .odds-link:hover { text-decoration: underline; }
   .empty { color: #5c6b80; font-size: 13.5px; text-align: center; padding: 20px 0; }
+  .target-price { font-size: 32px; font-weight: 800; color: #d99b5b; font-variant-numeric: tabular-nums; }
+  .target-meta { font-size: 12.5px; color: #6b7789; margin-top: 6px; line-height: 1.6; }
+  .target-warn { color: #e0917a; }
   .footnote { margin-top: 24px; font-size: 12px; color: #4a5568; line-height: 1.6; }
 </style>
 </head>
@@ -77,7 +80,7 @@
   <div class="card">
     <h3>Connect to your Worker proxy</h3>
     <label for="apiKey">Worker URL</label>
-    <input type="text" id="apiKey" placeholder="https://your-worker-name.your-subdomain.workers.dev">
+    <input type="text" id="apiKey" value="https://fixture-scanner.061202sr23.workers.dev" placeholder="https://your-worker-name.your-subdomain.workers.dev">
     <div class="help">
       This tool calls a small proxy (a Cloudflare Worker) instead of football-data.org directly, to avoid
       browser CORS restrictions and keep your API key off this page. Paste the Worker's URL once it's
@@ -100,6 +103,25 @@
     </div>
     <input type="range" id="gapSlider" min="0" max="19" value="13">
     <div class="range-labels"><span>0 places</span><span>19 places (max possible)</span></div>
+  </div>
+
+  <div class="card">
+    <h3>Exchange target price</h3>
+    <p class="sub">If placing this as a limit order on a betting exchange (e.g. Betfair) rather than taking a
+      bookmaker's fixed price, this is the minimum price worth setting &mdash; calculated from the actual
+      historical win rate at your current gap threshold, plus your chosen margin, adjusted for exchange
+      commission on net winnings.</p>
+    <div class="row">
+      <div>
+        <label for="commissionInput">Exchange commission (%)</label>
+        <input type="text" id="commissionInput" value="5">
+      </div>
+      <div>
+        <label for="marginInput">Target margin above breakeven (%)</label>
+        <input type="text" id="marginInput" value="5">
+      </div>
+    </div>
+    <div id="targetOddsDisplay" style="margin-top:16px;"></div>
   </div>
 
   <div class="card">
@@ -215,6 +237,40 @@ function oddscheckerLink(home, away) {
   const q = encodeURIComponent(`oddschecker ${home} vs ${away}`);
   return `https://www.google.com/search?q=${q}`;
 }
+
+// --- historical win-rate-by-gap-threshold lookup (Double Chance market, 2019/20-2025/26 EPL, gap>=N) ---
+const WIN_RATE_BY_GAP = {0:0.7372,1:0.7372,2:0.7509,3:0.7655,4:0.7764,5:0.7856,6:0.7971,7:0.8061,8:0.8196,9:0.8274,10:0.8385,11:0.863,12:0.8708,13:0.904,14:0.9077,15:0.9148,16:0.9391,17:0.9167,18:0.9062,19:1.0};
+const N_BY_GAP = {0:2588,1:2588,2:2292,3:2051,4:1820,5:1600,6:1375,7:1186,8:1009,9:846,10:681,11:562,12:449,13:354,14:260,15:176,16:115,17:72,18:32,19:9};
+
+function calcTargetOdds(gapThreshold, commissionPct, marginPct) {
+  const p = WIN_RATE_BY_GAP[gapThreshold];
+  const n = N_BY_GAP[gapThreshold];
+  const c = commissionPct / 100;
+  const margin = marginPct / 100;
+  // breakeven odds accounting for exchange commission on net winnings:
+  // O = 1 + (1-p) / (p * (1-c))
+  const breakeven = 1 + (1 - p) / (p * (1 - c));
+  const target = breakeven * (1 + margin);
+  return { p, n, breakeven, target };
+}
+
+function renderTargetOdds() {
+  const commissionPct = parseFloat(document.getElementById('commissionInput').value) || 0;
+  const marginPct = parseFloat(document.getElementById('marginInput').value) || 0;
+  const { p, n, breakeven, target } = calcTargetOdds(minGap, commissionPct, marginPct);
+  const smallSample = n < 50;
+  document.getElementById('targetOddsDisplay').innerHTML = `
+    <div class="target-price">${target.toFixed(3)}</div>
+    <div class="target-meta">
+      Based on ${(p*100).toFixed(1)}% historical win rate at gap&ge;${minGap} (n=${n} matches, 2019/20&ndash;2025/26).
+      Breakeven after ${commissionPct}% commission: ${breakeven.toFixed(3)}. Target adds ${marginPct}% margin on top.
+      ${smallSample ? `<br><span class="target-warn">&#9888; Small sample (n=${n}) &mdash; treat this specific number with extra caution.</span>` : ''}
+    </div>
+  `;
+}
+
+document.getElementById('commissionInput').addEventListener('input', renderTargetOdds);
+document.getElementById('marginInput').addEventListener('input', renderTargetOdds);
 
 const apiKeyInput = document.getElementById('apiKey');
 const loadBtn = document.getElementById('loadBtn');
@@ -375,9 +431,11 @@ gapSlider.addEventListener('input', (e) => {
   minGap = Number(e.target.value);
   gapValue.textContent = minGap;
   renderFixtures();
+  renderTargetOdds();
 });
 
 loadBtn.addEventListener('click', loadFixtures);
+renderTargetOdds(); // initial render on page load
 </script>
 </body>
 </html>
